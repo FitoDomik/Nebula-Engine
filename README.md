@@ -5,17 +5,9 @@
 ### Клонирование репозитория
 
 ```bash
-# Клонирование основного репозитория Nebula Engine
-git clone https://github.com/gscept/nebula.git
-cd nebula
-
-# Клонирование этого репозитория с документацией
+# Клонирование этого репозитория
 git clone https://github.com/FitoDomik/Nebula-Engine.git
 cd Nebula-Engine
-
-# Копирование документации в основной репозиторий (опционально)
-cp README.md ../nebula/
-```
 
 ### Альтернативный способ получения полного проекта
 
