@@ -1,0 +1,431 @@
+#pragma once
+//------------------------------------------------------------------------------
+/**
+    @file coregraphics/config.h
+    
+    Compile time configuration options for the CoreGraphics subsystem.
+    
+    @copyright
+    (C) 2007 Radon Labs GmbH
+    (C) 2013-2020 Individual contributors, see AUTHORS file
+*/
+#include "core/types.h"
+#include "util/string.h"
+#include "core/rttimacros.h"
+
+#define NEBULA_WHOLE_BUFFER_SIZE (~0ull)
+#define NEBULA_ALL_MIPS (-1)
+#define NEBULA_ALL_LAYERS (-1)
+namespace CoreGraphics
+{
+typedef uint64_t ConstantBufferOffset;
+
+union InputAssemblyKey
+{
+    struct
+    {
+        uint topo : 4;
+        bool primRestart : 1;
+    };
+    byte key;
+
+    void operator=(const InputAssemblyKey& rhs) { this->key = rhs.key; }
+    bool operator==(const InputAssemblyKey& rhs) const { return this->key == rhs.key; }
+    bool operator!=(const InputAssemblyKey& rhs) const { return this->key != rhs.key; }
+    bool operator>(const InputAssemblyKey& rhs) const { return this->key > rhs.key; }
+    bool operator<(const InputAssemblyKey& rhs) const { return this->key < rhs.key; }
+};
+
+enum QueueType
+{
+    GraphicsQueueType,
+    ComputeQueueType,
+    TransferQueueType,
+    SparseQueueType,
+
+    NumQueueTypes,
+
+    InvalidQueueType
+};
+
+enum QueryType
+{
+    OcclusionQueryType,
+    StatisticsQueryType,
+    TimestampsQueryType,
+    NumQueryTypes
+};
+
+enum ShaderVisibility
+{
+    InvalidVisibility               = 0,
+    VertexShaderVisibility          = 1 << 0,
+    HullShaderVisibility            = 1 << 2,
+    DomainShaderVisibility          = 1 << 3,
+    GeometryShaderVisibility        = 1 << 4,
+    PixelShaderVisibility           = 1 << 5,
+    AllGraphicsVisibility = VertexShaderVisibility | HullShaderVisibility | DomainShaderVisibility | GeometryShaderVisibility | PixelShaderVisibility,
+    TaskShaderVisibility            = 1 << 6,
+    MeshShaderVisibility            = 1 << 7,
+    ComputeShaderVisibility         = 1 << 8,
+    RayGenerationShaderVisibility   = 1 << 9,
+    RayAnyHitShaderVisibility       = 1 << 10,
+    RayClosestHitShaderVisibility   = 1 << 11,
+    RayMissShaderVisibility         = 1 << 12,
+    RayIntersectionShaderVisibility = 1 << 13,
+    CallableShaderVisibility        = 1 << 14,
+    AllVisibility                   = (1 << 15) - 1
+};
+__ImplementEnumBitOperators(CoreGraphics::ShaderVisibility);
+
+enum class ImageBits
+{
+    None = 0,
+    Auto = 1, // Special value to be used only by framescript
+    ColorBits = (1 << 1),
+    DepthBits = (1 << 2),
+    StencilBits = (1 << 3),
+    MetaBits = (1 << 4),
+    Plane0Bits = (1 << 5),
+    Plane1Bits = (1 << 6),
+    Plane2Bits = (1 << 7)
+};
+__ImplementEnumBitOperators(CoreGraphics::ImageBits);
+__ImplementEnumComparisonOperators(CoreGraphics::ImageBits);
+
+enum class ImageLayout
+{
+    Undefined,
+    General,
+    ColorRenderTexture,
+    DepthStencilRenderTexture,
+    DepthStencilRead,
+    ShaderRead,
+    TransferSource,
+    TransferDestination,
+    Preinitialized,
+    Present
+};
+
+enum ShaderPipeline
+{
+    InvalidPipeline,
+    GraphicsPipeline,
+    ComputePipeline,     // Compute pipeline is not the compute queue, it's just resources available for compute shaders
+    RayTracingPipeline   
+};
+
+//------------------------------------------------------------------------------
+/**
+*/
+inline ShaderVisibility
+ShaderVisibilityFromString(const Util::String& str)
+{
+    Util::Array<Util::String> components = str.Tokenize("|");
+    CoreGraphics::ShaderVisibility ret = InvalidVisibility;
+    IndexT i;
+    for (i = 0; i < components.Size(); i++)
+    {
+        const Util::String& component = components[i];
+        if (component == "VS")          ret |= VertexShaderVisibility;
+        else if (component == "HS")     ret |= HullShaderVisibility;
+        else if (component == "DS")     ret |= DomainShaderVisibility;
+        else if (component == "GS")     ret |= GeometryShaderVisibility;
+        else if (component == "PS")     ret |= PixelShaderVisibility;
+        else if (component == "CS")     ret |= ComputeShaderVisibility;
+        else if (component == "TS")     ret |= TaskShaderVisibility;
+        else if (component == "MS")     ret |= MeshShaderVisibility;
+        else if (component == "RGS")    ret |= RayGenerationShaderVisibility;
+        else if (component == "RAS")    ret |= RayAnyHitShaderVisibility;
+        else if (component == "RCS")    ret |= RayClosestHitShaderVisibility;
+        else if (component == "RMS")    ret |= RayMissShaderVisibility;
+        else if (component == "RIS")    ret |= RayIntersectionShaderVisibility;
+        else if (component == "CAS")    ret |= CallableShaderVisibility;
+    }
+
+    return ret;
+}
+
+//------------------------------------------------------------------------------
+/**
+*/
+inline QueueType
+QueueTypeFromString(const Util::String& str)
+{
+    if (str == "Graphics")      return GraphicsQueueType;
+    else if (str == "Compute")  return ComputeQueueType;
+    else if (str == "Transfer") return TransferQueueType;
+    else if (str == "Sparse")   return SparseQueueType;
+    return GraphicsQueueType;
+}
+
+//------------------------------------------------------------------------------
+/**
+*/
+inline const char*
+QueueNameFromQueueType(const QueueType type)
+{
+    switch (type)
+    {
+    case GraphicsQueueType:
+        return "Graphics";
+    case ComputeQueueType:
+        return "Compute";
+    case TransferQueueType:
+        return "Transfer";
+    case SparseQueueType:
+        return "Sparse";
+    default:
+        return "Graphics";
+    }
+}
+
+
+enum class BarrierDomain
+{
+    Global,
+    Pass
+};
+
+enum class PipelineStage
+{
+    InvalidStage,
+    Top,                // Top of pipe
+    Bottom,             // Bottom of pipe
+    Indirect,           // Indirect dispatch/draw fetching stage
+    Index,              // Index fetch (automatically vertex shader)
+    Vertex,             // Vertex fetch stage (automatically vertex shader)
+    UniformGraphics,    // Uniform read on graphics queue
+    UniformCompute,     // Uniform read on compute queue
+    InputAttachment,    // Input attachment read (automatically pixel shader)
+    ReadOnlyAccess = InputAttachment, // All of the above enums are read-only
+    VertexShaderRead,       
+    VertexShaderWrite,
+    HullShaderRead,
+    HullShaderWrite,
+    DomainShaderRead,
+    DomainShaderWrite,
+    GeometryShaderRead,
+    GeometryShaderWrite,
+    PixelShaderRead,
+    PixelShaderWrite,
+    GraphicsShadersRead,
+    GraphicsShadersWrite,
+    ComputeShaderRead,
+    ComputeShaderWrite,
+    AllShadersRead,
+    AllShadersWrite,
+    ColorRead,                      // Color output read
+    ColorWrite,                     // Color output write
+    DepthStencilRead,               // Depth-Stencil output read
+    DepthStencilWrite,              // Depth-Stencil output write
+    RayTracingShaderRead,
+    RayTracingShaderWrite,
+    TaskShaderRead,
+    TaskShaderWrite,
+    MeshShaderRead,
+    MeshShaderWrite,
+    TransferRead,                   // Memory transfering read
+    TransferWrite,                  // Memory transfering write
+    HostRead,                       // Host operations read
+    HostWrite,                      // Host operations write
+    MemoryRead,                     // Memory operations read
+    MemoryWrite,                    // Memory operations write
+    AccelerationStructureRead,      // Read acceleration structure
+    AccelerationStructureWrite,     // Write acceleration structure
+    ImageInitial,                   // Special pipeline stage for initial images
+    Present                         // Special pipeline stage for present images
+};
+
+__ImplementEnumBitOperators(PipelineStage);
+
+//------------------------------------------------------------------------------
+/**
+*/
+inline PipelineStage
+PipelineStageFromString(const Util::String& str)
+{
+    if (str == "Top")                           return PipelineStage::Top;
+    else if (str == "Bottom")                   return PipelineStage::Bottom;
+    else if (str == "IndirectRead")             return PipelineStage::Indirect;
+    else if (str == "IndexRead")                return PipelineStage::Index;
+    else if (str == "VertexRead")               return PipelineStage::Vertex;
+    else if (str == "UniformGraphicsRead")      return PipelineStage::UniformGraphics;
+    else if (str == "UniformComputeRead")       return PipelineStage::UniformCompute;
+    else if (str == "InputAttachmentRead")      return PipelineStage::InputAttachment;
+    else if (str == "VertexShaderRead")         return PipelineStage::VertexShaderRead;
+    else if (str == "VertexShaderWrite")        return PipelineStage::VertexShaderWrite;
+    else if (str == "HullShaderRead")           return PipelineStage::HullShaderRead;
+    else if (str == "HullShaderWrite")          return PipelineStage::HullShaderWrite;
+    else if (str == "DomainShaderRead")         return PipelineStage::DomainShaderRead;
+    else if (str == "DomainShaderWrite")        return PipelineStage::DomainShaderWrite;
+    else if (str == "GeometryShaderRead")       return PipelineStage::GeometryShaderRead;
+    else if (str == "GeometryShaderWrite")      return PipelineStage::GeometryShaderWrite;
+    else if (str == "PixelShaderRead")          return PipelineStage::PixelShaderRead;
+    else if (str == "PixelShaderWrite")         return PipelineStage::PixelShaderWrite;
+    else if (str == "ComputeShaderRead")        return PipelineStage::ComputeShaderRead;
+    else if (str == "ComputeShaderWrite")       return PipelineStage::ComputeShaderWrite;
+    else if (str == "ColorAttachmentRead")      return PipelineStage::ColorRead;
+    else if (str == "ColorAttachmentWrite")     return PipelineStage::ColorWrite;
+    else if (str == "DepthAttachmentRead")      return PipelineStage::DepthStencilRead;
+    else if (str == "DepthAttachmentWrite")     return PipelineStage::DepthStencilWrite;
+    else if (str == "TransferRead")             return PipelineStage::TransferRead;
+    else if (str == "TransferWrite")            return PipelineStage::TransferWrite;
+    else if (str == "HostRead")                 return PipelineStage::HostRead;
+    else if (str == "HostWrite")                return PipelineStage::HostWrite;
+    else if (str == "MemoryRead")               return PipelineStage::MemoryRead;
+    else if (str == "MemoryWrite")              return PipelineStage::MemoryWrite;
+    else if (str == "Present")                  return PipelineStage::Present;
+    else
+    {
+        n_error("Invalid pipeline stage '%s'\n", str.AsCharPtr());
+        return PipelineStage::InvalidStage;
+    }
+}
+
+//------------------------------------------------------------------------------
+/**
+*/
+inline bool
+PipelineStageWrites(const PipelineStage stage)
+{
+    switch (stage)
+    {
+        case PipelineStage::VertexShaderWrite:
+        case PipelineStage::HullShaderWrite:
+        case PipelineStage::DomainShaderWrite:
+        case PipelineStage::GeometryShaderWrite:
+        case PipelineStage::PixelShaderWrite:
+        case PipelineStage::ComputeShaderWrite:
+        case PipelineStage::AllShadersWrite:
+        case PipelineStage::ColorWrite:
+        case PipelineStage::DepthStencilWrite:
+        case PipelineStage::HostWrite:
+        case PipelineStage::MemoryWrite:
+        case PipelineStage::TransferWrite:
+            return true;
+    }
+    return false;
+}
+
+
+//------------------------------------------------------------------------------
+/**
+    Demotes an input source stage to a QueueType
+*/
+inline PipelineStage
+ConvertToQueue(const CoreGraphics::PipelineStage sourceStage, const CoreGraphics::QueueType queue)
+{
+    bool isGraphics = false;
+    switch (sourceStage)
+    {
+    case PipelineStage::ColorWrite:
+    case PipelineStage::DepthStencilWrite:
+    case PipelineStage::UniformGraphics:
+    case PipelineStage::VertexShaderWrite:
+    case PipelineStage::HullShaderWrite:
+    case PipelineStage::DomainShaderWrite:
+    case PipelineStage::GeometryShaderWrite:
+    case PipelineStage::TaskShaderWrite:
+    case PipelineStage::PixelShaderWrite:
+    case PipelineStage::MeshShaderWrite:
+        switch (queue)
+        {
+            case CoreGraphics::QueueType::GraphicsQueueType:
+                return sourceStage;
+            case CoreGraphics::QueueType::ComputeQueueType:
+                return PipelineStage::ComputeShaderRead;
+            case CoreGraphics::QueueType::TransferQueueType:
+            case CoreGraphics::QueueType::SparseQueueType:
+                return PipelineStage::TransferRead;
+        }
+    case PipelineStage::ColorRead:
+    case PipelineStage::DepthStencilRead:
+    case PipelineStage::VertexShaderRead:
+    case PipelineStage::HullShaderRead:
+    case PipelineStage::DomainShaderRead:
+    case PipelineStage::GeometryShaderRead:
+    case PipelineStage::PixelShaderRead:
+    case PipelineStage::TaskShaderRead:
+    case PipelineStage::MeshShaderRead:
+        switch (queue)
+        {
+            case CoreGraphics::QueueType::GraphicsQueueType:
+                return sourceStage;
+            case CoreGraphics::QueueType::ComputeQueueType:
+                return PipelineStage::ComputeShaderRead;
+            case CoreGraphics::QueueType::TransferQueueType:
+            case CoreGraphics::QueueType::SparseQueueType:
+                return PipelineStage::TransferRead;
+        }
+    case PipelineStage::AccelerationStructureRead:
+    case PipelineStage::AccelerationStructureWrite:
+        switch (queue)
+        {
+            case CoreGraphics::QueueType::GraphicsQueueType:
+            case CoreGraphics::QueueType::ComputeQueueType:
+                return sourceStage;
+            case CoreGraphics::QueueType::TransferQueueType:
+            case CoreGraphics::QueueType::SparseQueueType:
+                return PipelineStage::TransferRead;
+        }
+    }
+
+    return sourceStage;
+}
+
+} // namespace CoreGraphics
+
+
+#define SHADER_POSTEFFECT_DEFAULT_FEATURE_MASK "Alt0"
+
+#if !PUBLIC_BUILD
+#define NEBULA_GRAPHICS_DEBUG 1
+#define NEBULA_MARKER_BLUE Math::vec4(0.8f, 0.8f, 1.0f, 1.0f)
+#define NEBULA_MARKER_RED Math::vec4(1.0f, 0.8f, 0.8f, 1.0f)
+#define NEBULA_MARKER_GREEN Math::vec4(0.8f, 1.0f, 0.8f, 1.0f)
+#define NEBULA_MARKER_DARK_GREEN Math::vec4(0.6f, 0.8f, 0.6f, 1.0f)
+#define NEBULA_MARKER_DARK_DARK_GREEN Math::vec4(0.5f, 0.7f, 0.5f, 1.0f)
+#define NEBULA_MARKER_PINK Math::vec4(1.0f, 0.8f, 0.9f, 1.0f)
+#define NEBULA_MARKER_PURPLE Math::vec4(0.9f, 0.7f, 0.9f, 1.0f)
+#define NEBULA_MARKER_ORANGE Math::vec4(1.0f, 0.9f, 0.8f, 1.0f)
+#define NEBULA_MARKER_TURQOISE Math::vec4(0.8f, 0.9f, 1.0f, 1.0f)
+#define NEBULA_MARKER_GRAY Math::vec4(0.9f, 0.9f, 0.9f, 1.0f)
+#define NEBULA_MARKER_BLACK Math::vec4(0.001f)
+#define NEBULA_MARKER_WHITE Math::vec4(1)
+
+#define NEBULA_MARKER_COMPUTE NEBULA_MARKER_BLUE
+#define NEBULA_MARKER_GRAPHICS NEBULA_MARKER_GREEN
+#define NEBULA_MARKER_TRANSFER NEBULA_MARKER_RED
+
+#endif
+
+//------------------------------------------------------------------------------
+#if __VULKAN__
+    #define COREGRAPHICS_TRIANGLE_FRONT_FACE_CCW (1)
+    // define the same descriptor set slots as we do in the shaders
+    #define NEBULA_TICK_GROUP 0             // set per tick (once for all views) by the system
+    #define NEBULA_FRAME_GROUP 1            // set per frame (once per view) by the system
+    #define NEBULA_PASS_GROUP 2             // set per pass by the system
+    #define NEBULA_BATCH_GROUP 3            // set per batch (material settings or system stuff)
+    #define NEBULA_INSTANCE_GROUP 4         // set a batch-internal copy of some specific settings
+    #define NEBULA_SYSTEM_GROUP 5           // set a batch-internal copy of some specific settings
+    #define NEBULA_DYNAMIC_OFFSET_GROUP 6   // set once per shader and is offset for each instance
+    #define NEBULA_NUM_GROUPS (NEBULA_DYNAMIC_OFFSET_GROUP + 1)
+
+    #define MAX_INPUT_ATTACHMENTS 32
+
+    #define SHADER_MODEL_5 (1)
+    #ifdef _DEBUG
+        #define NEBULA_VULKAN_DEBUG (1)
+    #else
+        #define NEBULA_VULKAN_DEBUG (0)
+    #endif
+    #define PROJECTION_HANDEDNESS_LH (0)
+#if __X64__
+    #define VK_DEVICE_SIZE_CONV(x) uint64_t(x)
+#else
+    #define VK_DEVICE_SIZE_CONV(x) uint32_t(x)
+#endif
+#endif
+//------------------------------------------------------------------------------

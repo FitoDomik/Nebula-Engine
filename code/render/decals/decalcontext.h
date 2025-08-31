@@ -1,0 +1,111 @@
+#pragma once
+//------------------------------------------------------------------------------
+/**
+    The Decal context manages the decal system and entities and rendering.
+
+    @copyright
+    (C) 2020 Individual contributors, see AUTHORS file
+*/
+//------------------------------------------------------------------------------
+#include "graphics/graphicscontext.h"
+namespace Decals
+{
+
+class DecalContext : public Graphics::GraphicsContext
+{
+    __DeclareContext();
+public:
+    /// constructor
+    DecalContext();
+    /// destructor
+    virtual ~DecalContext();
+
+    /// setup decal context
+    static void Create();
+    /// discard decal context
+    static void Discard();
+
+    /// setup as albedo-normal-material decal
+    static void SetupDecalPBR(
+        const Graphics::GraphicsEntityId id, 
+        const Math::mat4 transform,
+        const Resources::ResourceId albedo, 
+        const Resources::ResourceId normal, 
+        const Resources::ResourceId material);
+    /// setup as emissive decal
+    static void SetupDecalEmissive(
+        const Graphics::GraphicsEntityId id,
+        const Math::mat4 transform,
+        const Resources::ResourceId emissive);
+
+    /// set albedo texture for a PBR decal
+    static void SetAlbedoTexture(const Graphics::GraphicsEntityId id, const Resources::ResourceId albedo);
+    /// set normal texture for a PBR decal
+    static void SetNormalTexture(const Graphics::GraphicsEntityId id, const Resources::ResourceId normal);
+    /// set material texture for a PBR decal
+    static void SetMaterialTexture(const Graphics::GraphicsEntityId id, const Resources::ResourceId material);
+    /// set emissive texture for a PBR decal
+    static void SetEmissiveTexture(const Graphics::GraphicsEntityId id, const Resources::ResourceId emissive);
+
+    /// set transform of decal
+    static void SetTransform(const Graphics::GraphicsEntityId id, const Math::mat4 transform);
+    /// get transform of decal
+    static Math::mat4 GetTransform(const Graphics::GraphicsEntityId id);
+
+    /// update view dependent resources
+    static void UpdateViewDependentResources(const Ptr<Graphics::View>& view, const Graphics::FrameContext& ctx);
+
+#ifndef PUBLIC_BUILD
+    /// render debug
+    static void OnRenderDebug(uint32_t flags);
+#endif
+
+private:
+
+    enum DecalType
+    {
+        PBRDecal,
+        EmissiveDecal
+    };
+    enum
+    {
+        Decal_Transform,
+        Decal_Type,
+        Decal_TypedId
+    };
+    typedef Ids::IdAllocator<
+        Math::mat4,
+        DecalType,
+        Ids::Id32
+    > GenericDecalAllocator;
+    static GenericDecalAllocator genericDecalAllocator;
+
+    enum
+    {
+        DecalPBR_Albedo,
+        DecalPBR_Normal,
+        DecalPBR_Material,
+    };
+    typedef Ids::IdAllocator<
+        Resources::ResourceId,
+        Resources::ResourceId,
+        Resources::ResourceId
+    > PBRDecalAllocator;
+    static PBRDecalAllocator pbrDecalAllocator;
+
+    enum
+    {
+        DecalEmissive_Emissive,
+    };
+    typedef Ids::IdAllocator<
+        Resources::ResourceId
+    > EmissiveDecalAllocator;
+    static EmissiveDecalAllocator emissiveDecalAllocator;
+
+    /// allocate a new slice for this context
+    static Graphics::ContextEntityId Alloc();
+    /// deallocate a slice
+    static void Dealloc(Graphics::ContextEntityId id);
+
+};
+} // namespace Decals

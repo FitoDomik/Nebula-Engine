@@ -1,0 +1,195 @@
+//------------------------------------------------------------------------------
+//  @file vkvertexlayout.cc
+//  @copyright (C) 2022 Individual contributors, see AUTHORS file
+//------------------------------------------------------------------------------
+
+#include "vkvertexlayout.h"
+#include "vkshader.h"
+#include "vktypes.h"
+
+namespace Vulkan
+{
+
+VkVertexLayoutAllocator vertexLayoutAllocator;
+static Threading::CriticalSection vertexSignatureMutex;
+
+//------------------------------------------------------------------------------
+/**
+*/
+const VertexLayoutVkBindInfo&
+VertexLayoutGetVkBindInfo(const CoreGraphics::VertexLayoutId layout)
+{
+    Threading::CriticalScope scope(&vertexSignatureMutex);
+    return vertexLayoutAllocator.Get<VertexSignature_DynamicBindInfo>(layout.id);
+}
+
+} // namespace Vulkan
+namespace CoreGraphics
+{
+
+using namespace Vulkan;
+
+//------------------------------------------------------------------------------
+/**
+*/
+const VertexLayoutId
+CreateVertexLayout(const VertexLayoutCreateInfo& info)
+{
+    Ids::Id32 id = vertexLayoutAllocator.Alloc();
+
+    VertexLayoutInfo loadInfo;
+
+    Util::String sig;
+    IndexT i;
+    SizeT size = 0;
+    for (i = 0; i < info.comps.Size(); i++)
+    {
+        sig.Append(info.comps[i].GetSignature());
+        info.comps[i].byteOffset += size;
+        size += info.comps[i].GetByteSize();
+    }
+    sig = Util::String::Sprintf("%s", sig.AsCharPtr());
+    Util::StringAtom atom(sig);
+
+    loadInfo.name = info.name;
+    loadInfo.vertexByteSize = size;
+    loadInfo.comps = info.comps;
+    vertexLayoutAllocator.Set<VertexSignature_LayoutInfo>(id, loadInfo);
+
+    VkPipelineVertexInputStateCreateInfo& vertexInfo = vertexLayoutAllocator.Get<VertexSignature_VkPipelineInfo>(id);
+    BindInfo& bindInfo = vertexLayoutAllocator.Get<VertexSignature_BindInfo>(id);
+    VertexLayoutVkBindInfo& dynamicBindInfo = vertexLayoutAllocator.Get<VertexSignature_DynamicBindInfo>(id);
+
+    // create binds
+    bindInfo.binds.Resize(CoreGraphics::MaxNumVertexStreams);
+    bindInfo.binds.Fill(VkVertexInputBindingDescription{});
+    bindInfo.attrs.Resize(loadInfo.comps.Size());
+
+    dynamicBindInfo.binds.Resize(CoreGraphics::MaxNumVertexStreams);
+    for (auto& bind : dynamicBindInfo.binds)
+    {
+        bind = VkVertexInputBindingDescription2EXT
+        {
+            .sType = VK_STRUCTURE_TYPE_VERTEX_INPUT_BINDING_DESCRIPTION_2_EXT,
+            .pNext = nullptr,
+            .binding = 0xFFFFFFFF,
+            .stride = 0xFFFFFFFF,
+            .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
+            .divisor = 1
+        };
+    }
+    dynamicBindInfo.attrs.Resize(loadInfo.comps.Size());
+
+    uint32_t numUsedStreams = 0;
+    IndexT curOffset[CoreGraphics::MaxNumVertexStreams];
+    bool usedStreams[CoreGraphics::MaxNumVertexStreams];
+    Memory::Fill(curOffset, CoreGraphics::MaxNumVertexStreams * sizeof(IndexT), 0);
+    Memory::Fill(usedStreams, CoreGraphics::MaxNumVertexStreams * sizeof(bool), 0);
+    Util::Array<SizeT> streamSizes;
+
+    IndexT compIndex;
+    for (compIndex = 0; compIndex < loadInfo.comps.Size(); compIndex++)
+    {
+        const CoreGraphics::VertexComponent& component = loadInfo.comps[compIndex];
+        VkVertexInputAttributeDescription* attr = &bindInfo.attrs[compIndex];
+        attr->location = component.GetIndex();
+        attr->binding = component.GetStreamIndex();
+        attr->format = VkTypes::AsVkVertexType(component.GetFormat());
+        attr->offset = curOffset[component.GetStreamIndex()];
+
+        VkVertexInputAttributeDescription2EXT& attr2 = dynamicBindInfo.attrs[compIndex];
+        attr2 = VkVertexInputAttributeDescription2EXT
+        {
+            .sType = VK_STRUCTURE_TYPE_VERTEX_INPUT_ATTRIBUTE_DESCRIPTION_2_EXT,
+            .pNext = nullptr,
+            .location = (uint)component.GetIndex(),
+            .binding = (uint)component.GetStreamIndex(),
+            .format = VkTypes::AsVkVertexType(component.GetFormat()),
+            .offset = (uint)curOffset[component.GetStreamIndex()]
+        };
+
+        if (usedStreams[attr->binding])
+        {
+            bindInfo.binds[attr->binding].stride += component.GetByteSize();
+            dynamicBindInfo.binds[attr->binding].stride += component.GetByteSize();
+            streamSizes[attr->binding] += component.GetByteSize();
+        }
+        else
+        {
+            bindInfo.binds[attr->binding].stride = component.GetByteSize();
+            dynamicBindInfo.binds[attr->binding].stride = component.GetByteSize();
+            usedStreams[attr->binding] = true;
+            streamSizes.Append(component.GetByteSize());
+            numUsedStreams++;
+        }
+
+        bindInfo.binds[attr->binding].binding = component.GetStreamIndex();
+        bindInfo.binds[attr->binding].inputRate = component.GetStrideType() == CoreGraphics::VertexComponent::PerVertex ? VK_VERTEX_INPUT_RATE_VERTEX : VK_VERTEX_INPUT_RATE_INSTANCE;
+        dynamicBindInfo.binds[attr->binding].binding = component.GetStreamIndex();
+        dynamicBindInfo.binds[attr->binding].inputRate = component.GetStrideType() == CoreGraphics::VertexComponent::PerVertex ? VK_VERTEX_INPUT_RATE_VERTEX : VK_VERTEX_INPUT_RATE_INSTANCE;
+        curOffset[component.GetStreamIndex()] += component.GetByteSize();
+    }
+    vertexLayoutAllocator.Set<VertexSignature_StreamSize>(id, streamSizes);
+    dynamicBindInfo.binds.Resize(numUsedStreams);
+
+    vertexInfo =
+    {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+        .pNext = nullptr,
+        .flags =  0,
+        .vertexBindingDescriptionCount = numUsedStreams,
+        .pVertexBindingDescriptions = bindInfo.binds.Begin(),
+        .vertexAttributeDescriptionCount = (uint32_t)bindInfo.attrs.Size(),
+        .pVertexAttributeDescriptions = bindInfo.attrs.Begin()
+    };
+
+    VertexLayoutId ret = id;
+    return ret;
+}
+
+//------------------------------------------------------------------------------
+/**
+*/
+void
+DestroyVertexLayout(const VertexLayoutId id)
+{
+    vertexLayoutAllocator.Dealloc(id.id);
+}
+
+//------------------------------------------------------------------------------
+/**
+*/
+const SizeT
+VertexLayoutGetSize(const VertexLayoutId id)
+{
+    return vertexLayoutAllocator.Get<VertexSignature_LayoutInfo>(id.id).vertexByteSize;
+}
+
+//------------------------------------------------------------------------------
+/**
+*/
+const SizeT
+VertexLayoutGetStreamSize(const VertexLayoutId id, IndexT stream)
+{
+    return vertexLayoutAllocator.Get<VertexSignature_StreamSize>(id.id)[stream];
+}
+
+//------------------------------------------------------------------------------
+/**
+*/
+const Util::Array<VertexComponent>&
+VertexLayoutGetComponents(const VertexLayoutId id)
+{
+    return vertexLayoutAllocator.Get<VertexSignature_LayoutInfo>(id.id).comps;
+}
+
+//------------------------------------------------------------------------------
+/**
+*/
+const Util::StringAtom&
+VertexLayoutGetName(const VertexLayoutId id)
+{
+    return vertexLayoutAllocator.Get<VertexSignature_LayoutInfo>(id.id).name;
+}
+
+} // namespace Vulkan

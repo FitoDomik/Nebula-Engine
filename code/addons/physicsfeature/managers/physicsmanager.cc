@@ -1,0 +1,190 @@
+//------------------------------------------------------------------------------
+//  physicsmanager.cc
+//  (C) 2020 Individual contributors, see AUTHORS file
+//------------------------------------------------------------------------------
+#include "application/stdneb.h"
+#include "physicsmanager.h"
+#include "game/gameserver.h"
+#include "physics/charactercontext.h"
+#include "physicsinterface.h"
+#include "physics/actorcontext.h"
+#include "resources/resourceserver.h"
+#include "components/physicsfeature.h"
+#include "basegamefeature/components/basegamefeature.h"
+#include "basegamefeature/components/position.h"
+#include "basegamefeature/components/orientation.h"
+#include "basegamefeature/components/scale.h"
+#include "basegamefeature/components/velocity.h"
+
+namespace PhysicsFeature
+{
+
+__ImplementClass(PhysicsFeature::PhysicsManager, 'PhMa', Game::Manager);
+__ImplementSingleton(PhysicsManager)
+
+//------------------------------------------------------------------------------
+/**
+*/
+PhysicsManager::PhysicsManager()
+{
+    __ConstructSingleton
+}
+
+//------------------------------------------------------------------------------
+/**
+*/
+PhysicsManager::~PhysicsManager()
+{
+    __DestructSingleton
+}
+
+//------------------------------------------------------------------------------
+/**
+*/
+void
+PhysicsManager::InitPhysicsActor(Game::World* world, Game::Entity entity, PhysicsFeature::PhysicsActor* actor)
+{
+    if (actor->actorId != 0xFFFFFFFF)
+    {
+        // Assumes the actor has been setup externally, just skip it.
+        return;
+    }
+
+    Math::transform worldTransform = Math::transform(
+        world->GetComponent<Game::Position>(entity),
+        world->GetComponent<Game::Orientation>(entity),
+        world->GetComponent<Game::Scale>(entity)
+    );
+
+    Resources::ResourceId resId = Resources::CreateResource(actor->resource, "PHYS", nullptr, nullptr, true);
+    Physics::ActorId actorid =
+        Physics::CreateActorInstance(resId, worldTransform, (Physics::ActorType)actor->actorType, Ids::Id64(entity));
+    actor->actorId = actorid.id;
+
+    if ((int)actor->actorType == Physics::Kinematic)
+    {
+        world->AddComponent<PhysicsFeature::IsKinematic>(entity);
+    }
+    if (world->HasComponent<Game::Velocity>(entity))
+    {
+        Physics::ActorContext::SetLinearVelocity(actorid, world->GetComponent<Game::Velocity>(entity));
+    }
+    if (world->HasComponent< Game::AngularVelocity>(entity))
+    {
+        Physics::ActorContext::SetAngularVelocity(actorid, world->GetComponent<Game::AngularVelocity>(entity));
+    }
+    // fixme, this should be configured, just brute force it for now
+    Physics::ActorContext::SetCollisionFeedback(actorid, Physics::CollisionFeedback_Full);
+}
+
+//------------------------------------------------------------------------------
+/**
+*/
+void
+PhysicsManager::OnDecay()
+{
+    Game::World* world = Game::GetWorld(WORLD_DEFAULT);
+    Game::ComponentDecayBuffer const decayBuffer = world->GetDecayBuffer(Game::GetComponentId<PhysicsActor>());
+    PhysicsFeature::PhysicsActor* data = (PhysicsFeature::PhysicsActor*)decayBuffer.buffer;
+    for (int i = 0; i < decayBuffer.size; i++)
+    {
+        Physics::DestroyActorInstance(data[i].actorId);
+    }
+}
+
+//------------------------------------------------------------------------------
+/**
+*/
+void
+PollRigidbodyTransforms(Game::World* world, Game::Position& position, Game::Orientation& orientation, PhysicsFeature::PhysicsActor const& actor)
+{
+    if (actor.actorId != -1)
+    {
+        Physics::ActorContext::GetPositionOrientation(actor.actorId, position, orientation);
+    }
+}
+
+//------------------------------------------------------------------------------
+/**
+*/
+void
+PassKinematicTransforms(
+    Game::World* world, Game::Position const& position, Game::Orientation const& orientation, PhysicsFeature::PhysicsActor& actor, PhysicsFeature::IsKinematic
+)
+{
+    Physics::ActorContext::SetPositionOrientation(actor.actorId, position, orientation);
+}
+
+//------------------------------------------------------------------------------
+/**
+*/
+void
+PhysicsManager::InitPollTransformProcessor()
+{
+    Game::World* world = Game::GetWorld(WORLD_DEFAULT);
+    Game::ProcessorBuilder(world, "PhysicsManager.PollRigidbodyTransforms"_atm)
+        .Excluding<Game::Static, IsKinematic>()
+        .On("OnFrame")
+        .Func(&PollRigidbodyTransforms)
+        .Build();
+
+    Game::ProcessorBuilder(world, "PhysicsManager.PassKinematicTransforms"_atm)
+        .Excluding<Game::Static>()
+        .On("OnFrame")
+        .RunInEditor()
+        .Func(&PassKinematicTransforms)
+        .Build();
+}
+
+//------------------------------------------------------------------------------
+/**
+*/
+void
+PhysicsManager::OnActivate()
+{
+    Game::Manager::OnActivate();
+
+    this->InitPollTransformProcessor();
+}
+
+//------------------------------------------------------------------------------
+/**
+*/
+void
+PhysicsManager::OnDeactivate()
+{
+    Game::Manager::OnDeactivate();
+}
+
+//------------------------------------------------------------------------------
+/**
+*/
+void
+PhysicsManager::OnCleanup(Game::World* world)
+{
+    n_assert(PhysicsManager::HasInstance());
+
+    // TODO: cleanup should just call decay on everything...
+    Game::FilterBuilder::FilterCreateInfo filterInfo;
+    filterInfo.inclusive[0] = Game::GetComponentId<PhysicsActor>();
+    filterInfo.access[0] = Game::AccessMode::WRITE;
+    filterInfo.numInclusive = 1;
+
+    Game::Filter filter = Game::FilterBuilder::CreateFilter(filterInfo);
+    Game::Dataset data = world->Query(filter);
+    for (int v = 0; v < data.numViews; v++)
+    {
+        Game::Dataset::View const& view = data.views[v];
+        Physics::ActorId* const actors = (Physics::ActorId*)view.buffers[0];
+
+        for (IndexT i = 0; i < view.numInstances; ++i)
+        {
+            Physics::ActorId const& actorid = actors[i];
+            Physics::DestroyActorInstance(actorid);
+        }
+    }
+
+    Game::DestroyFilter(filter);
+}
+
+} // namespace PhysicsFeature

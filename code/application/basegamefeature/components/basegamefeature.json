@@ -1,0 +1,10 @@
+{
+  "namespace": "Game",
+  "includes": [
+    "math/mat4.h"
+  ],
+  "components": {
+    "IsActive": {},
+    "Static": {}
+  }
+}

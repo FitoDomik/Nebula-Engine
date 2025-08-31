@@ -1,0 +1,164 @@
+#pragma once
+//------------------------------------------------------------------------------
+/**
+    @class Game::GameServer
+
+    The game server setups and runs the game world.
+    Functionality and queries on the game world are divided amongst
+    several FeaturesUnits.
+    This keeps the game server's interface small and clean, and lets applications
+    easily extend functionality by implementing new, or deriving from existing
+    game features.
+
+    To add or replace FeatureUnit objects, derive from Game::FeatureUnit and 
+    add your features on application start or gamestatehandler enter.
+
+    The GameServer triggers all attached features. Start and Stop is called within 
+    the gamestatehandler to allow all features do stuff after everything is loaded 
+    and initialized. Load and Save is invoked from the BaseGameFeature which allows
+    beginning a new game, load or save a game.
+    
+    @copyright
+    (C) 2007 RadonLabs GmbH
+    (C) 2013-2020 Individual contributors, see AUTHORS file
+*/
+#include "core/refcounted.h"
+#include "core/ptr.h"
+#include "core/singleton.h"
+#include "game/featureunit.h"
+#include "debug/debugtimer.h"
+#include "ids/idgenerationpool.h"
+#include "api.h"
+#include "entitypool.h"
+#include "memdb/database.h"
+#include "world.h"
+#include "processor.h"
+
+//------------------------------------------------------------------------------
+namespace Game
+{
+
+//------------------------------------------------------------------------------
+/**
+*/
+class GameServer : public Core::RefCounted
+{
+    __DeclareClass(GameServer)
+    __DeclareSingleton(GameServer)
+public:
+    /// constructor
+    GameServer();
+    /// destructor
+    virtual ~GameServer();
+
+    // initialize all features
+    virtual bool Open();
+     // start the game; starts running all processors
+    virtual bool Start();
+    // stop the game. Stops running the processors
+    virtual void Stop(); 
+    // shuts down all features
+    virtual void Close(); 
+    
+    /// has the game world already started
+    bool HasStarted() const;
+
+    /// trigger actions before rendering the game world
+    virtual void OnBeginFrame();
+    /// trigger the game world
+    virtual void OnFrame();
+    /// trigger actions after rendering the game world
+    virtual void OnEndFrame();
+
+    /// call OnBeforeLoad on all game features
+    virtual void NotifyBeforeLoad();
+    /// call OnBeforeCleanup on all game features
+    virtual void NotifyBeforeCleanup();
+   
+    /// call OnLoad on all game features
+    virtual void NotifyGameLoad();
+    /// call OnSave on all game features
+    virtual void NotifyGameSave();
+
+    /// call when debug gui and primitives are up for rendering
+    void RenderDebug();
+        
+    /// add game feature
+    void AttachGameFeature(const Ptr<FeatureUnit>& feature);
+    /// remove game feature
+    void RemoveGameFeature(const Ptr<FeatureUnit>& feature);
+    /// is feature attached
+    bool IsFeatureAttached(const Util::String& stringName) const;
+    /// access to all attached features units
+    Util::Array<Ptr<FeatureUnit>> const& GetGameFeatures() const;
+
+    /// set command line args
+    void SetCmdLineArgs(const Util::CommandLineArgs& a);
+    /// get command line args
+    const Util::CommandLineArgs& GetCmdLineArgs() const;
+
+    /// setup an empty game world
+    virtual void SetupEmptyWorld(World*);
+    /// cleanup the game world
+    virtual void CleanupWorld(World*);
+    
+    /// create a world. The game server handles all worlds
+    World* CreateWorld(WorldHash hash);
+    /// get a world by hash
+    World* GetWorld(WorldHash worldHash);
+    /// get a world by WorldId
+    World* GetWorld(WorldId id);
+    /// destroy a world
+    void DestroyWorld(WorldHash worldHash);
+    
+    /// contains internal state and world management
+    struct State
+    {
+        World* worlds[32];
+        uint numWorlds = 0;
+
+        Util::HashTable<WorldHash, WorldId, 32, 1> worldTable;
+
+        /// Contains all templates
+        Ptr<MemDb::Database> templateDatabase;
+    } state;
+
+protected:
+    bool isOpen;
+    bool isStarted;
+    Util::CommandLineArgs args;
+    Util::Array<Ptr<FeatureUnit> > gameFeatures;
+    
+#if NEBULA_ENABLE_PROFILING
+    _declare_timer(GameServerOnBeginFrame);
+    _declare_timer(GameServerOnFrame);
+    _declare_timer(GameServerOnEndFrame);
+    _declare_timer(GameServerManageEntities);
+    Util::Array<Ptr<Debug::DebugTimer>> onBeginFrameTimers;
+    Util::Array<Ptr<Debug::DebugTimer>> onFrameTimers;
+    Util::Array<Ptr<Debug::DebugTimer>> onEndFrameTimers;
+#endif
+};
+
+//------------------------------------------------------------------------------
+/**
+*/
+inline void
+GameServer::SetCmdLineArgs(const Util::CommandLineArgs& a)
+{
+    this->args = a;
+}
+
+//------------------------------------------------------------------------------
+/**
+*/
+inline const Util::CommandLineArgs&
+GameServer::GetCmdLineArgs() const
+{
+    return this->args;
+}
+
+}; // namespace Game
+//------------------------------------------------------------------------------
+
+
